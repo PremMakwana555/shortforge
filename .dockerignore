@@ -1,0 +1,11 @@
+.git
+.venv
+venv
+.env
+.shortforge
+output
+tests
+docs
+**/__pycache__
+.pytest_cache
+.ruff_cache

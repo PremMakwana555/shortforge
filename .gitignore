@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.shortforge/
+output/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.onnx
+*.onnx.json
+.DS_Store
