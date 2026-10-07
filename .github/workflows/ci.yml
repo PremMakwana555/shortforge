@@ -11,24 +11,24 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
-          cache: pip
+          enable-cache: true
       - name: System deps (ffmpeg, espeak-ng, fonts)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng fonts-dejavu-core
-      - run: pip install -e ".[dev]"
-      - run: ruff check src tests
+      - name: Install (locked)
+        run: uv sync --locked
+      - run: uv run ruff check src tests
       - name: Unit + integration tests
-        run: pytest -q -m "not e2e"
+        run: uv run pytest -q -m "not e2e"
       - name: End-to-end offline render (real FFmpeg + espeak-ng)
-        run: pytest -q -m e2e
+        run: uv run pytest -q -m e2e
       - name: CLI smoke run
         env:
           SF_RENDER_PRESET: ultrafast
           SF_VIDEO_WIDTH: "540"
           SF_VIDEO_HEIGHT: "960"
-        run: shortforge run "the elevator that stops at floor 13" --offline
+        run: uv run shortforge run "the elevator that stops at floor 13" --offline
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -36,15 +36,38 @@ jobs:
           path: output/
           retention-days: 7
 
-  docker:
-    runs-on: ubuntu-latest
+  container:
     needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [podman, docker]
+    env:
+      IMAGE: localhost/shortforge:ci
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t shortforge:ci .
-      - name: Container health check
+      - name: Build image (${{ matrix.engine }})
         run: |
-          docker run -d --name sf -p 8080:8080 -e SF_OFFLINE=1 shortforge:ci
+          FLAGS=""; [ "${{ matrix.engine }}" = podman ] && FLAGS="--format docker"
+          ${{ matrix.engine }} build $FLAGS -t "$IMAGE" .
+      - name: Piper neural voice works inside the image
+        run: |
+          ${{ matrix.engine }} run --rm "$IMAGE" sh -c \
+            'echo "The lighthouse light came on by itself." | piper -m "$SF_PIPER_MODEL" -f /tmp/t.wav && test -s /tmp/t.wav && echo piper-ok'
+      - name: HTTP service health + job submission
+        run: |
+          ${{ matrix.engine }} run -d --name sf -p 8080:8080 -e SF_OFFLINE=1 "$IMAGE"
           for i in $(seq 1 30); do curl -fs localhost:8080/healthz && break; sleep 1; done
           curl -fs -X POST localhost:8080/jobs -H 'Content-Type: application/json' -d '{"topic":"the well behind the school"}'
-          docker logs sf | tail -20
+          ${{ matrix.engine }} logs sf | tail -20
+      - name: Full pipeline in a container (Piper voice, bind-mounted output)
+        run: |
+          mkdir -p output && chmod 777 output
+          USERNS=""; [ "${{ matrix.engine }}" = podman ] && USERNS="--userns=keep-id:uid=10001,gid=10001"
+          ${{ matrix.engine }} run --rm $USERNS -e SF_OFFLINE=1 -e SF_RENDER_PRESET=ultrafast \
+            -e SF_VIDEO_WIDTH=540 -e SF_VIDEO_HEIGHT=960 \
+            -v "$PWD/output:/data/output:Z" "$IMAGE" shortforge run "the radio station that broadcasts at 3am"
+          ls -la output/*/
+          test -s output/*/video.mp4

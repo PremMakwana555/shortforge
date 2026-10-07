@@ -43,7 +43,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
         rt = runtime or build()
         rt_holder["rt"] = rt
-        if isinstance(rt.bus, InMemoryBus):  # local docker run: process the pipeline in-process
+        if isinstance(rt.bus, InMemoryBus):  # local container run: process the pipeline in-process
             rt.bus.start()
         yield
         await rt.close()

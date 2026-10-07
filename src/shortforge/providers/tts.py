@@ -1,7 +1,7 @@
 """Text-to-speech. Open-source engines only, all running locally (no per-character cost, no quota):
 
-* ``piper``  - neural TTS (Rhasspy Piper, MIT). Needs ``pip install piper-tts`` + a voice ``.onnx``.
-* ``espeak`` - espeak-ng formant synth (GPL). Robotic but always available in the Docker image.
+* ``piper``  - neural TTS (Piper, GPL-3.0). Needs ``uv sync --extra tts`` + a voice ``.onnx``.
+* ``espeak`` - espeak-ng formant synth (GPL). Robotic but always available in the container image.
 * ``silent`` - timed silence sized to the text; captions still carry the story. Flagged degraded.
 
 Every provider writes a mono WAV and returns its duration; the voiceover agent then normalises

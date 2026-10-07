@@ -9,8 +9,10 @@ topic ─▶ Research ─▶ Script ─▶ Voiceover ─▶ Visual ─▶ Editin
 ```
 
 ```bash
-pip install -e .            # needs ffmpeg on PATH (+ espeak-ng for a voice)
-shortforge run "the lighthouse keeper who never left"
+uv sync                                            # needs ffmpeg on PATH (+ espeak-ng for a voice)
+uv run shortforge run "the lighthouse keeper who never left"
+# or fully containerised:
+make image run-container                           # Podman by default, Docker as fallback
 ```
 
 Runs with **zero API keys**: offline fallbacks (template writer, procedural images, espeak/silent narration) keep every stage working, and each stage reports when it was `degraded`. Add free keys to upgrade quality.
@@ -23,7 +25,7 @@ Runs with **zero API keys**: offline fallbacks (template writer, procedural imag
 |---|---|---|
 | **Research** | Retrieve grounding material, distil a creative brief | Wikipedia API → offline · LLM chain for the brief |
 | **Script** | 6–9 narrated beats + one image prompt per beat; schema-validated, word-budgeted, content blocklist | Groq (Llama 3.3 70B) → OpenRouter `:free` → Gemini → Ollama (local) → offline writer |
-| **Voiceover** | Per-beat TTS → exact beat timings; speeds up ≤ 1.25× to fit the 60 s cap | Piper (neural, MIT) → espeak-ng → timed silence |
+| **Voiceover** | Per-beat TTS → exact beat timings; speeds up ≤ 1.25× to fit the 60 s cap | Piper (neural, GPL-3.0) → espeak-ng → timed silence |
 | **Visual** | One 9:16 image per beat, generated concurrently (bounded), validated | Pollinations FLUX (no key) → HF Inference FLUX.1-schnell → Pexels → procedural renderer |
 | **Editing** | FFmpeg: per-beat Ken Burns clips (parallel), burned captions, loudness-normalised narration + generated ambient bed, thumbnail | FFmpeg / libass |
 | **QA** | Release gate: ffprobe stream/resolution/codec, duration limits, A/V sync, black-frame ratio, loudness, optional LLM-as-judge; failures **route back** to the stage that can fix them | ffmpeg `blackdetect` / `volumedetect`, LLM chain |
@@ -54,35 +56,64 @@ flowchart LR
 
 Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Quick start
+## Quick start (uv)
+
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `uv.lock`.
 
 ```bash
 # system deps: ffmpeg (required), espeak-ng (voice), DejaVu fonts (captions)
-sudo apt-get install ffmpeg espeak-ng fonts-dejavu-core     # macOS: brew install ffmpeg espeak-ng
+brew install uv ffmpeg espeak-ng                               # macOS
+# sudo apt-get install ffmpeg espeak-ng fonts-dejavu-core      # Debian/Ubuntu (uv: curl -LsSf https://astral.sh/uv/install.sh | sh)
 
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[service]"
+uv sync                         # creates .venv from uv.lock (Python 3.12 from .python-version)
 cp .env.example .env            # optional: add free keys
 
-shortforge providers            # which providers are configured
-shortforge run "the cursed elevator that stops at floor 13"
-shortforge status               # list jobs
-shortforge status <job_id>      # per-stage status, attempts, timings, provider used, QA verdict
-shortforge resume <job_id>      # continue a failed job from its last good stage
+uv run shortforge providers     # which providers are configured
+uv run shortforge run "the cursed elevator that stops at floor 13"
+uv run shortforge status               # list jobs
+uv run shortforge status <job_id>      # per-stage status, attempts, timings, provider used, QA verdict
+uv run shortforge resume <job_id>      # continue a failed job from its last good stage
 ```
 
 Output lands in `output/<job_id>/` — `video.mp4`, `thumbnail.jpg`, `metadata.json` (title, description, hashtags, sources, `ai_generated`, degraded stages).
 
-**Free keys worth adding** (all optional): `GROQ_API_KEY` (best free LLM quality/latency), `HF_API_TOKEN` (FLUX images if Pollinations is down), `PEXELS_API_KEY`. For a natural voice: `pip install piper-tts`, download a voice from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) and set `SF_PIPER_MODEL` (the Docker image bakes one in). Or run `ollama pull llama3.1:8b` for a fully local LLM.
+Optional extras: `--extra tts` (Piper neural voice), `--extra gcp` (Firestore/Pub/Sub/GCS), `--extra youtube` (uploads) — pass them to `uv run` too (e.g. `uv run --extra tts shortforge run ...`), because a plain `uv run` re-syncs the environment to the default set. Adding a dependency: `uv add <pkg>` (updates `pyproject.toml` and `uv.lock`; commit both).
 
-### HTTP service / Docker
+**Free keys worth adding** (all optional): `GROQ_API_KEY` (best free LLM quality/latency), `HF_API_TOKEN` (FLUX images if Pollinations is down), `PEXELS_API_KEY`. For a natural voice locally: `uv run --extra tts python -m piper.download_voices en_US-ryan-medium`, set `SF_PIPER_MODEL=$PWD/en_US-ryan-medium.onnx`, and run with `uv run --extra tts shortforge run ...` (the container image bakes this voice in). Or `ollama pull llama3.1:8b` for a fully local LLM.
+
+## Containers (Podman first, Docker works too)
+
+The image is plain OCI — fully-qualified base images (`docker.io/library/...`, `ghcr.io/astral-sh/uv`), no BuildKit-only syntax, a numeric non-root user (UID 10001) — so it builds and runs identically under **rootless Podman** and Docker. CI builds and runs it with both.
 
 ```bash
-docker build -t shortforge .
-docker run -p 8080:8080 --env-file .env shortforge          # local backend, pipeline runs in-process
+make image                       # podman build --format docker -t localhost/shortforge:latest .
+make image-slim                  # without the Piper voice (espeak-ng only), smaller
+make serve-container             # HTTP API on :8080, state in the `shortforge-data` volume
+make run-container TOPIC="the well behind the school"   # one-shot render into ./output
+podman compose up --build        # same as serve-container, via compose.yaml (also: docker compose)
+```
+
+Without make:
+
+```bash
+podman build --format docker -t localhost/shortforge .
+podman run --rm -p 8080:8080 --env-file .env -v shortforge-data:/data localhost/shortforge
 curl -X POST localhost:8080/jobs -H 'Content-Type: application/json' -d '{"topic":"the well behind the school"}'
 curl localhost:8080/jobs/<job_id>
+
+# one-shot render with the video written to ./output on the host
+mkdir -p output
+podman run --rm --env-file .env --userns=keep-id:uid=10001,gid=10001 \
+  -v "$PWD/output:/data/output:Z" localhost/shortforge shortforge run "the radio station that broadcasts at 3am"
 ```
+
+Podman notes:
+
+* **`--format docker`** keeps the `HEALTHCHECK` (Podman's default OCI format drops it with a warning).
+* **Bind mounts, rootless:** the container runs as UID 10001; `--userns=keep-id:uid=10001,gid=10001` maps that UID to *your* host user so files in `./output` are owned by you and writable. Named volumes (`-v shortforge-data:/data`) need nothing extra.
+* **`:Z`** relabels the bind mount for SELinux hosts (Fedora/RHEL). On macOS (`podman machine`) leave it off — the Makefile only adds it on Linux.
+* **macOS (Apple Silicon):** `podman machine init --cpus 4 --memory 8192 && podman machine start`. The image builds natively for `linux/arm64` (uv, Piper and onnxruntime all ship aarch64 wheels). Give the machine ≥ 4 CPUs — FFmpeg rendering is the hot path.
+* **Docker:** every command above works with `docker` substituted; `--userns=keep-id` is Podman-only (use `--user $(id -u)` or a writable directory instead).
 
 ### Deploy to GCP
 
@@ -91,7 +122,7 @@ export PROJECT=my-project REGION=asia-south1
 ./deploy/gcp/deploy.sh   # idempotent
 ```
 
-Provisions Firestore, a GCS bucket (30-day lifecycle), Artifact Registry, Secret Manager entries for any keys in `.env`, 5 Cloud Run services (private, IAM-invoked), 7 topics with OIDC push subscriptions, retry policy and a dead-letter topic. The final MP4 stays in GCS; YouTube upload is enabled automatically when OAuth credentials are present.
+Builds remotely with Cloud Build (no local container engine needed), then provisions Firestore, a GCS bucket (30-day lifecycle), Artifact Registry, Secret Manager entries for any keys in `.env`, 5 Cloud Run services (private, IAM-invoked), 7 topics with OIDC push subscriptions, retry policy and a dead-letter topic. The final MP4 stays in GCS; YouTube upload is enabled automatically when OAuth credentials are present.
 
 ## Observability
 
@@ -103,12 +134,12 @@ Provisions Firestore, a GCS bucket (30-day lifecycle), Artifact Registry, Secret
 ## Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest -m "not e2e"   # orchestration semantics, bus, state, chains, LLM repair, validators, HTTP push endpoint
-pytest -m e2e         # full pipeline: real FFmpeg render + espeak-ng, offline providers
+uv sync
+make lint test        # uv run ruff check / uv run pytest -m "not e2e"
+make e2e              # full pipeline: real FFmpeg render + espeak-ng, offline providers
 ```
 
-The orchestration suite covers: in-order execution, duplicate delivery idempotency, transient retry, retry exhaustion → fail → resume without recomputing upstream, fatal errors, QA rework loop, rework budget → `needs_review`, stale-revision drop, live-lease contention, expired-lease takeover. CI runs all of it plus a CLI smoke render and a Docker build/health check, and uploads the sample video as a build artifact.
+The orchestration suite covers: in-order execution, duplicate delivery idempotency, transient retry, retry exhaustion → fail → resume without recomputing upstream, fatal errors, QA rework loop, rework budget → `needs_review`, stale-revision drop, live-lease contention, expired-lease takeover. CI (`uv sync --locked`) runs all of it plus a CLI smoke render, then builds the image with **both Podman and Docker** and, in each, checks the Piper voice synthesises, the API is healthy, and a full containerised render writes a video to a bind-mounted directory. The sample video is uploaded as a build artifact.
 
 ## Configuration
 

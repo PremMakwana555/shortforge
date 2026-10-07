@@ -1,7 +1,7 @@
 """Publishing targets.
 
 * ``local``   - copies the final video, thumbnail and metadata into ``SF_OUTPUT_DIR/<job_id>/``.
-* ``youtube`` - YouTube Data API v3 resumable upload (OAuth refresh token; ``pip install .[youtube]``).
+* ``youtube`` - YouTube Data API v3 resumable upload (OAuth refresh token; ``uv sync --extra youtube``).
                 Uploads default to ``private`` so a human can review before going public.
 
 Publishing is the one non-idempotent side effect in the pipeline, so the agent records each
@@ -62,7 +62,7 @@ class YouTubePublisher(Publisher):
             from googleapiclient.errors import HttpError
             from googleapiclient.http import MediaFileUpload
         except ImportError as e:
-            raise FatalError("YouTube publishing needs `pip install shortforge[youtube]`") from e
+            raise FatalError("YouTube publishing needs `uv sync --extra youtube`") from e
 
         def _upload() -> dict[str, Any]:
             creds = Credentials(

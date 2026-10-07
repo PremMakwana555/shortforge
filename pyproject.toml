@@ -24,7 +24,14 @@ gcp = [
   "google-cloud-storage>=2.16",
 ]
 youtube = ["google-api-python-client>=2.120", "google-auth>=2.29"]
+tts = ["piper-tts>=1.2"]  # neural open-source voice (GPL-3.0); also needs a voice .onnx (SF_PIPER_MODEL)
+
+[dependency-groups]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4", "respx>=0.21", "fastapi>=0.110", "uvicorn>=0.29"]
+
+[tool.uv]
+# `uv sync` installs the dev group (tests, linters, HTTP service deps) by default.
+default-groups = ["dev"]
 
 [project.scripts]
 shortforge = "shortforge.cli:main"

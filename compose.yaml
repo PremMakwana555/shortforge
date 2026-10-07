@@ -1,0 +1,25 @@
+# Works with `podman compose` (or podman-compose) and `docker compose`.
+#   podman compose up --build      ->  http://localhost:8080/healthz
+# Uses the local backend (SQLite + in-process bus): the API and all 7 agents run in one container.
+services:
+  shortforge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        WITH_PIPER: "1"
+    image: localhost/shortforge:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SF_LOG_FORMAT: pretty
+    ports:
+      - "8080:8080"
+    volumes:
+      # Named volume: no UID mapping or SELinux relabel issues under rootless Podman.
+      - shortforge-data:/data
+    restart: unless-stopped
+
+volumes:
+  shortforge-data:
