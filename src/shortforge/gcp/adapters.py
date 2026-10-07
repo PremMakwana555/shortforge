@@ -1,4 +1,4 @@
-"""GCP implementations of Bus / StateStore / ArtifactStore. Imported lazily (``uv sync --extra gcp``).
+"""GCP implementations of Bus / StateStore / ArtifactStore. Imported lazily (installed by ``uv sync``).
 
 Mapping to the local implementations:
   InMemoryBus        -> Pub/Sub topic per stage, push subscription -> Cloud Run ``/pubsub/{stage}``

@@ -83,7 +83,9 @@ class Settings:
     pexels_api_key: str = ""
     pollinations_model: str = "flux"
 
-    piper_model_path: str = ""
+    piper_model_path: str = ""  # explicit .onnx; default: <cache_dir>/voices/<piper_voice>.onnx
+    piper_voice: str = "en_US-ryan-medium"
+    cache_dir: Path = Path("~/.cache/shortforge").expanduser()
     espeak_voice: str = "en-us+m3"
     espeak_speed_wpm: int = 160
 
@@ -145,6 +147,8 @@ class Settings:
             pexels_api_key=_env("PEXELS_API_KEY"),
             pollinations_model=_env("SF_POLLINATIONS_MODEL", "flux"),
             piper_model_path=_env("SF_PIPER_MODEL"),
+            piper_voice=_env("SF_PIPER_VOICE", "en_US-ryan-medium"),
+            cache_dir=Path(_env("SF_CACHE_DIR", "~/.cache/shortforge")).expanduser(),
             espeak_voice=_env("SF_ESPEAK_VOICE", "en-us+m3"),
             espeak_speed_wpm=int(_env("SF_ESPEAK_WPM", "160")),
             niche=_env("SF_NICHE", "horror"),

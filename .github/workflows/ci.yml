@@ -23,12 +23,17 @@ jobs:
         run: uv run pytest -q -m "not e2e"
       - name: End-to-end offline render (real FFmpeg + espeak-ng)
         run: uv run pytest -q -m e2e
-      - name: CLI smoke run
+      - name: Doctor (downloads the Piper voice)
+        run: uv run shortforge doctor --fix
+      - name: CLI smoke run (native, Piper voice)
         env:
           SF_RENDER_PRESET: ultrafast
           SF_VIDEO_WIDTH: "540"
           SF_VIDEO_HEIGHT: "960"
-        run: uv run shortforge run "the elevator that stops at floor 13" --offline
+        run: |
+          uv run shortforge run "the elevator that stops at floor 13" --offline
+          JOB=$(ls output | head -1)
+          uv run shortforge status "$JOB" --json | python -c "import json,sys; j=json.load(sys.stdin); p=j['stages']['voiceover']['output']['provider']; print('voice:', p); assert p == 'piper', p"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -55,7 +60,7 @@ jobs:
       - name: Piper neural voice works inside the image
         run: |
           ${{ matrix.engine }} run --rm "$IMAGE" sh -c \
-            'echo "The lighthouse light came on by itself." | piper -m "$SF_PIPER_MODEL" -f /tmp/t.wav && test -s /tmp/t.wav && echo piper-ok'
+            'echo "The lighthouse light came on by itself." | piper -m "$SF_CACHE_DIR/voices/en_US-ryan-medium.onnx" -f /tmp/t.wav && test -s /tmp/t.wav && echo piper-ok'
       - name: HTTP service health + job submission
         run: |
           ${{ matrix.engine }} run -d --name sf -p 8080:8080 -e SF_OFFLINE=1 "$IMAGE"

@@ -5,6 +5,7 @@
     shortforge status [JOB_ID]                                # job list / stage-level detail
     shortforge resume JOB_ID                                  # continue a failed job from its last good stage
     shortforge providers                                      # which providers are configured
+    shortforge doctor [--fix]                                 # check ffmpeg / voice / keys
     shortforge serve --port 8080                              # HTTP service (Cloud Run)
 """
 
@@ -97,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--json", action="store_true")
     st.add_argument("--limit", type=int, default=20)
     sub.add_parser("providers", help="show provider chains and which are configured")
+    dr = sub.add_parser("doctor", help="check system prerequisites (ffmpeg, voice, keys) and how to fix them")
+    dr.add_argument("--fix", action="store_true", help="download the Piper voice if missing")
     sv = sub.add_parser("serve", help="run the HTTP service (Cloud Run entrypoint)")
     sv.add_argument("--host", default="0.0.0.0")
     sv.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
@@ -108,6 +111,10 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(_run_local(args))
     if args.cmd == "status":
         return asyncio.run(_status(args))
+    if args.cmd == "doctor":
+        from . import doctor
+
+        return doctor.run(fix=args.fix)
     if args.cmd == "providers":
         from .config import Settings
         from .providers.registry import Providers

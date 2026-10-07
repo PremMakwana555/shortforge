@@ -115,3 +115,19 @@ async def test_image_chain_rejects_html_error_page_and_falls_back(settings):
     res = await build_image_chain(s).run(lambda p: p.generate("dark hallway", 384, 672, 3),
                                          validate=lambda d: validate_image(d) and None)
     assert res.provider == "procedural"
+
+
+def test_voice_url_layout():
+    from shortforge.providers.tts import voice_url
+
+    assert voice_url("en_US-ryan-medium").endswith("/en/en_US/ryan/medium/en_US-ryan-medium")
+
+
+@respx.mock
+async def test_piper_voice_download_failure_falls_back(settings, tmp_path):
+    from shortforge.providers.tts import build_tts_chain
+
+    respx.get(url__startswith="https://huggingface.co/").mock(return_value=httpx.Response(404))
+    s = dataclasses.replace(settings, tts_providers=["piper", "silent"], cache_dir=tmp_path / "cache")
+    res = await build_tts_chain(s).run(lambda p: p.synth("hello there", tmp_path / "o.wav"))
+    assert res.provider == "silent" and res.attempts[0]["provider"] == "piper"

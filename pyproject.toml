@@ -10,27 +10,32 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Prem Makwana" }]
+# Everything the pipeline can use is a regular dependency: `uv sync` gives a complete install.
+# (Only system binaries stay outside uv: ffmpeg is required, espeak-ng is an optional fallback voice.)
 dependencies = [
+  # core
   "httpx>=0.27",
   "pydantic>=2.6",
   "pillow>=10.0",
-]
-
-[project.optional-dependencies]
-service = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
-gcp = [
+  # HTTP service (Cloud Run / container entrypoint)
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  # neural open-source voice (GPL-3.0); the voice model downloads on first use
+  "piper-tts>=1.2",
+  # GCP backends: Pub/Sub, Firestore, GCS
   "google-cloud-pubsub>=2.21",
   "google-cloud-firestore>=2.16",
   "google-cloud-storage>=2.16",
+  # YouTube publishing
+  "google-api-python-client>=2.120",
+  "google-auth>=2.29",
 ]
-youtube = ["google-api-python-client>=2.120", "google-auth>=2.29"]
-tts = ["piper-tts>=1.2"]  # neural open-source voice (GPL-3.0); also needs a voice .onnx (SF_PIPER_MODEL)
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4", "respx>=0.21", "fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4", "respx>=0.21"]
 
 [tool.uv]
-# `uv sync` installs the dev group (tests, linters, HTTP service deps) by default.
+# `uv sync` also installs the dev group (pytest, ruff, respx); `uv sync --no-dev` for runtime only.
 default-groups = ["dev"]
 
 [project.scripts]

@@ -9,10 +9,15 @@ topic ─▶ Research ─▶ Script ─▶ Voiceover ─▶ Visual ─▶ Editin
 ```
 
 ```bash
-uv sync                                            # needs ffmpeg on PATH (+ espeak-ng for a voice)
-uv run shortforge run "the lighthouse keeper who never left"
-# or fully containerised:
-make image run-container                           # Podman by default, Docker as fallback
+# macOS (Apple Silicon) - one-time
+brew install uv ffmpeg espeak-ng podman
+podman machine init --cpus 4 --memory 8192 && podman machine start
+
+# native
+uv sync && uv run shortforge run "the cursed elevator"
+
+# containerised (Podman)
+make image run-container TOPIC="the cursed elevator"
 ```
 
 Runs with **zero API keys**: offline fallbacks (template writer, procedural images, espeak/silent narration) keep every stage working, and each stage reports when it was `degraded`. Add free keys to upgrade quality.
@@ -58,28 +63,31 @@ Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Quick start (uv)
 
-Dependencies are managed with [uv](https://docs.astral.sh/uv/) and pinned in `uv.lock`.
+`uv sync` installs **every** Python dependency from `uv.lock` — the HTTP service, Piper neural TTS, the GCP clients and the YouTube client — so there are no extras or flags to remember. The Piper voice model (~60 MB) downloads automatically on the first run into `~/.cache/shortforge/voices/`.
+
+uv can't install system binaries, so two things come from your OS package manager:
+
+| Binary | Needed for | Install |
+|---|---|---|
+| `ffmpeg` / `ffprobe` (**required**) | rendering, probing, QA | `brew install ffmpeg` · `sudo apt-get install ffmpeg` |
+| `espeak-ng` (optional) | fallback voice if Piper is unavailable | `brew install espeak-ng` · `sudo apt-get install espeak-ng` |
 
 ```bash
-# system deps: ffmpeg (required), espeak-ng (voice), DejaVu fonts (captions)
-brew install uv ffmpeg espeak-ng                               # macOS
-# sudo apt-get install ffmpeg espeak-ng fonts-dejavu-core      # Debian/Ubuntu (uv: curl -LsSf https://astral.sh/uv/install.sh | sh)
+uv sync                                   # .venv with everything, Python 3.12 from .python-version
+uv run shortforge doctor --fix            # checks ffmpeg + filters, pre-downloads the voice, lists keys
+cp .env.example .env                      # optional: add free keys
 
-uv sync                         # creates .venv from uv.lock (Python 3.12 from .python-version)
-cp .env.example .env            # optional: add free keys
-
-uv run shortforge providers     # which providers are configured
 uv run shortforge run "the cursed elevator that stops at floor 13"
-uv run shortforge status               # list jobs
-uv run shortforge status <job_id>      # per-stage status, attempts, timings, provider used, QA verdict
-uv run shortforge resume <job_id>      # continue a failed job from its last good stage
+uv run shortforge status                  # list jobs
+uv run shortforge status <job_id>         # per-stage status, attempts, timings, provider used, QA verdict
+uv run shortforge resume <job_id>         # continue a failed job from its last good stage
 ```
 
-Output lands in `output/<job_id>/` — `video.mp4`, `thumbnail.jpg`, `metadata.json` (title, description, hashtags, sources, `ai_generated`, degraded stages).
+`make setup` does `uv sync` + `doctor --fix` in one go. Output lands in `output/<job_id>/` — `video.mp4`, `thumbnail.jpg`, `metadata.json` (title, description, hashtags, sources, `ai_generated`, degraded stages).
 
-Optional extras: `--extra tts` (Piper neural voice), `--extra gcp` (Firestore/Pub/Sub/GCS), `--extra youtube` (uploads) — pass them to `uv run` too (e.g. `uv run --extra tts shortforge run ...`), because a plain `uv run` re-syncs the environment to the default set. Adding a dependency: `uv add <pkg>` (updates `pyproject.toml` and `uv.lock`; commit both).
+Adding a dependency: `uv add <pkg>` (updates `pyproject.toml` and `uv.lock` — commit both). Runtime-only install: `uv sync --no-dev`.
 
-**Free keys worth adding** (all optional): `GROQ_API_KEY` (best free LLM quality/latency), `HF_API_TOKEN` (FLUX images if Pollinations is down), `PEXELS_API_KEY`. For a natural voice locally: `uv run --extra tts python -m piper.download_voices en_US-ryan-medium`, set `SF_PIPER_MODEL=$PWD/en_US-ryan-medium.onnx`, and run with `uv run --extra tts shortforge run ...` (the container image bakes this voice in). Or `ollama pull llama3.1:8b` for a fully local LLM.
+**Free keys worth adding** (all optional): `GROQ_API_KEY` (best free LLM quality/latency), `HF_API_TOKEN` (FLUX images if Pollinations is down), `PEXELS_API_KEY`. Different voice: `SF_PIPER_VOICE=en_GB-alan-medium` (any name from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices)). Fully local LLM: `ollama pull llama3.1:8b`.
 
 ## Containers (Podman first, Docker works too)
 
@@ -87,7 +95,7 @@ The image is plain OCI — fully-qualified base images (`docker.io/library/...`,
 
 ```bash
 make image                       # podman build --format docker -t localhost/shortforge:latest .
-make image-slim                  # without the Piper voice (espeak-ng only), smaller
+make image-slim                  # without baking the Piper voice (it downloads on first use)
 make serve-container             # HTTP API on :8080, state in the `shortforge-data` volume
 make run-container TOPIC="the well behind the school"   # one-shot render into ./output
 podman compose up --build        # same as serve-container, via compose.yaml (also: docker compose)

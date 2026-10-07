@@ -2,7 +2,7 @@
 # (Podman's short-name resolution can otherwise prompt or pick a different registry).
 #
 #   podman build -t shortforge .            # or: docker build -t shortforge .
-#   podman build --build-arg WITH_PIPER=0 -t shortforge .   # skip the neural voice (smaller image)
+#   podman build --build-arg WITH_PIPER=0 -t shortforge .   # don't bake the voice (downloads on first use)
 #
 # One image, many roles: SF_SERVICE_ROLE picks which pipeline stages a Cloud Run service handles.
 
@@ -14,7 +14,6 @@ FROM ${UV_IMAGE} AS uv
 
 # --------------------------------------------------------------------------- dependencies (uv, locked)
 FROM ${PYTHON_IMAGE} AS builder
-ARG WITH_PIPER=1
 COPY --from=uv /uv /uvx /usr/local/bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -24,25 +23,21 @@ WORKDIR /app
 
 # Dependencies first (cached layer), project second. --frozen = fail if uv.lock is out of date.
 COPY pyproject.toml uv.lock .python-version README.md ./
-RUN EXTRAS="--extra service --extra gcp --extra youtube"; \
-    if [ "$WITH_PIPER" = "1" ]; then EXTRAS="$EXTRAS --extra tts"; fi; \
-    uv sync --frozen --no-dev --no-install-project $EXTRAS
+RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
-RUN EXTRAS="--extra service --extra gcp --extra youtube"; \
-    if [ "$WITH_PIPER" = "1" ]; then EXTRAS="$EXTRAS --extra tts"; fi; \
-    uv sync --frozen --no-dev --no-editable $EXTRAS
+RUN uv sync --frozen --no-dev --no-editable
 
 # --------------------------------------------------------------------------- Piper voice (open-source)
 FROM ${PYTHON_IMAGE} AS voice
 ARG WITH_PIPER=1
 ARG PIPER_VOICE=en_US-ryan-medium
-RUN mkdir -p /opt/piper && if [ "$WITH_PIPER" = "1" ]; then \
+RUN mkdir -p /opt/sf-cache/voices && if [ "$WITH_PIPER" = "1" ]; then \
       apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && \
       V="$PIPER_VOICE"; L=$(echo "$V" | cut -d_ -f1); LC=$(echo "$V" | cut -d- -f1); \
       N=$(echo "$V" | cut -d- -f2); Q=$(echo "$V" | cut -d- -f3); \
       BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/$L/$LC/$N/$Q"; \
-      curl -fsSL "$BASE/$V.onnx" -o /opt/piper/voice.onnx && \
-      curl -fsSL "$BASE/$V.onnx.json" -o /opt/piper/voice.onnx.json; \
+      curl -fsSL "$BASE/$V.onnx" -o "/opt/sf-cache/voices/$V.onnx" && \
+      curl -fsSL "$BASE/$V.onnx.json" -o "/opt/sf-cache/voices/$V.onnx.json"; \
     fi
 
 # --------------------------------------------------------------------------- runtime
@@ -56,14 +51,14 @@ RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \
  && mkdir -p /data && chown 10001:10001 /data
 
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=voice /opt/piper /opt/piper
+COPY --from=voice --chown=10001:10001 /opt/sf-cache /opt/sf-cache
 
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     SF_LOG_FORMAT=json \
     SF_DATA_DIR=/data/state \
     SF_OUTPUT_DIR=/data/output \
-    SF_PIPER_MODEL=/opt/piper/voice.onnx
+    SF_CACHE_DIR=/opt/sf-cache
 
 USER 10001
 WORKDIR /data
